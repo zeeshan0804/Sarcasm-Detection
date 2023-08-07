@@ -9,6 +9,3 @@ To run the code, you just need to follow the below steps:
 6. Type python main.py to train and test the model.
 7. The model will be saved under model directory.
 8. The training loss will be stored in loss_record folder.
-# code1
-# code1
-# code1
