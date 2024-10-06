@@ -10,7 +10,7 @@ from config import Config
 from pytorch_pretrained_bert import BertTokenizer
 # from transformers import BertTokenizer
 
-tokenizer = BertTokenizer.from_pretrained('bert/uncased_L-12_H-768_A-12')
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 config = Config()
 
