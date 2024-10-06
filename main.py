@@ -115,7 +115,7 @@ def train():
             # exit()
             loss.backward()
             optimizer.step()
-            if steps % 100 == 0:
+            if steps % 1000 == 0:
                 print("batch:", steps)
                 print('Training Loss: {0:.4f}'.format(loss.item()), 'Training Accuracy: {0: .2f}%'.format(acc.item()))
             steps += 1
