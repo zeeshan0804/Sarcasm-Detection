@@ -24,7 +24,7 @@ device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("
 # word2id = utils.load_word2id()
 
 
-bert = BertModel.from_pretrained('bert/bert-base-uncased')
+bert = BertModel.from_pretrained('bert-base-uncased')
 
 model = Model(bert).to(device)
 # model = Model(word2id).to(device)
