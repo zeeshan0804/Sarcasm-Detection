@@ -30,7 +30,7 @@ class CapsNet(nn.Module):
     def __init__(self):
         super(CapsNet, self).__init__()
         self.conv1 = nn.Conv2d(1, 256, kernel_size=(config.n_gram, 768), stride=1)
-        self.primary_capsules = CapsuleLayer(num_capsules=8, in_channels=256, out_channels=32, kernel_size=9, stride=2)
+        self.primary_capsules = CapsuleLayer(num_capsules=8, in_channels=256, out_channels=32, kernel_size=3, stride=1, padding=1)
         self.digit_capsules = CapsuleLayer(num_capsules=10, in_channels=32*8, out_channels=16, kernel_size=1)
         self.dropout = nn.Dropout(p=0.5)
 
@@ -38,7 +38,8 @@ class CapsNet(nn.Module):
         embedding = embedding.unsqueeze(1)
         x = F.relu(self.conv1(embedding))
         x = self.primary_capsules(x)
-        x = self.digit_capsules(x.view(x.size(0), -1, x.size(2), x.size(3)))
+        x = x.view(x.size(0), -1, x.size(2), x.size(3))
+        x = self.digit_capsules(x)
         x = self.dropout(x)
         x = x.squeeze().transpose(2, 1)
         return x
@@ -50,12 +51,12 @@ class Model(nn.Module):
         self.fc0 = nn.Linear(768, 100)
 
         self.embed_size = config.embed_size
-        self.capsnet = CapsNet()  # Replace CNN with CapsNet
+        self.capsnet = CapsNet()
         self.phrase_attention = Phrase_attention()
         self.self_attention = Self_Attention()
         self.batch_size = config.batch_size
         self.embed_size = config.embed_size
-        self.linear = nn.Linear(768, 2)
+        self.linear = nn.Linear(160, 2)  # Changed from 768 to 160 (16 * 10)
         self.use_glove = config.use_glove
         self.uw = nn.Parameter(torch.FloatTensor(torch.randn(100)))
 
@@ -64,7 +65,7 @@ class Model(nn.Module):
             E, _ = self.bert(x_batch)
 
         E = torch.stack(E[-4:]).sum(0)
-        U = self.capsnet(E)  # Use CapsNet instead of CNN
+        U = self.capsnet(E)
         a = self.phrase_attention(U).unsqueeze(2)
         f_a = self.self_attention(a * U)
         result = self.linear(f_a)
@@ -73,7 +74,7 @@ class Model(nn.Module):
 class Phrase_attention(nn.Module):
     def __init__(self):
         super(Phrase_attention, self).__init__()
-        self.linear = nn.Linear(768, config.max_sen_len - config.n_gram + 1)
+        self.linear = nn.Linear(160, config.max_sen_len - config.n_gram + 1)  # Changed from 768 to 160
         self.tanh = nn.Tanh()
         self.u_w = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(config.max_sen_len - config.n_gram + 1, 1)))
 
@@ -86,8 +87,8 @@ class Phrase_attention(nn.Module):
 class Self_Attention(nn.Module):
     def __init__(self):
         super(Self_Attention, self).__init__()
-        self.w1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(768, 1)))
-        self.w2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(768, 1)))
+        self.w1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(160, 1)))  # Changed from 768 to 160
+        self.w2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(160, 1)))  # Changed from 768 to 160
         self.b = nn.Parameter(torch.FloatTensor(torch.randn(1)))
 
     def forward(self, embedding):
