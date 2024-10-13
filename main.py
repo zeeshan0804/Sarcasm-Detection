@@ -17,7 +17,7 @@ else:
     print("Using: CPU")
 
 config = Config()
-device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # utils.build_word2id(config.train_path)
@@ -115,7 +115,7 @@ def train():
             # exit()
             loss.backward()
             optimizer.step()
-            if steps % 1000 == 0:
+            if steps % 100 == 0:
                 print("batch:", steps)
                 print('Training Loss: {0:.4f}'.format(loss.item()), 'Training Accuracy: {0: .2f}%'.format(acc.item()))
             steps += 1
@@ -129,10 +129,10 @@ def train():
         print('Epoch: {0:02}'.format(epoch + 1))
         print('Train Loss: {0:.3f}'.format(total_epoch_loss / steps),
               'Train Acc: {0:.3f}%'.format(total_epoch_acc / steps))
-        eval_loss, eval_acc = validation()
-        print('Validation Loss: {0:.3f}'.format(eval_loss), 'Validation Acc: {0:.3f}%'.format(eval_acc))
+        # eval_loss, eval_acc = validation()
+        # print('Validation Loss: {0:.3f}'.format(eval_loss), 'Validation Acc: {0:.3f}%'.format(eval_acc))
         loss_train.append(total_epoch_loss / steps)
-        loss_test.append(eval_loss)
+        # loss_test.append(eval_loss)
         print("\n")
 
 
