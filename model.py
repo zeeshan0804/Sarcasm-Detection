@@ -44,62 +44,80 @@ class CapsNet(nn.Module):
         x = x.squeeze().transpose(2, 1)
         return x
 
+class Phrase_attention(nn.Module):
+    def __init__(self, input_dim=160, output_dim=38):
+        super(Phrase_attention, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
+        self.tanh = nn.Tanh()
+        self.u_w = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(output_dim, 1)))
+
+    def forward(self, embedding):
+        u_t = self.tanh(self.linear(embedding))
+        a = torch.matmul(u_t, self.u_w.to(embedding.device)).squeeze(1)
+        return a
+
+class Self_Attention(nn.Module):
+    def __init__(self, input_dim=160, hidden_dim=38):
+        super(Self_Attention, self).__init__()
+        self.query = nn.Linear(input_dim, hidden_dim)
+        self.key = nn.Linear(input_dim, hidden_dim)
+        self.value = nn.Linear(input_dim, hidden_dim)
+        self.scale = nn.Parameter(torch.sqrt(torch.FloatTensor([hidden_dim])))
+
+    def forward(self, embedding):
+        Q = self.query(embedding)
+        K = self.key(embedding)
+        V = self.value(embedding)
+        
+        attention = torch.matmul(Q, K.transpose(-2, -1)) / self.scale.to(embedding.device)
+        attention = F.softmax(attention, dim=-1)
+        x = torch.matmul(attention, V)
+        
+        return x
+
+
 class Model(nn.Module):
     def __init__(self, bert):
         super(Model, self).__init__()
         self.bert = bert.train()
         self.fc0 = nn.Linear(768, 100)
-
         self.embed_size = config.embed_size
         self.capsnet = CapsNet()
-        self.phrase_attention = Phrase_attention()
-        self.self_attention = Self_Attention()
+        self.phrase_attention = Phrase_attention(input_dim=160, output_dim=38)
+        self.self_attention = Self_Attention(input_dim=160, hidden_dim=38)
         self.batch_size = config.batch_size
         self.embed_size = config.embed_size
-        self.linear = nn.Linear(160, 2)  # Changed from 768 to 160 (16 * 10)
+        self.linear = nn.Linear(38, 2)
         self.use_glove = config.use_glove
         self.uw = nn.Parameter(torch.FloatTensor(torch.randn(100)))
 
     def forward(self, x_batch):
+        device = x_batch.device
         with torch.no_grad():
             E, _ = self.bert(x_batch)
-
         E = torch.stack(E[-4:]).sum(0)
         U = self.capsnet(E)
-        a = self.phrase_attention(U).unsqueeze(2)
-        f_a = self.self_attention(a * U)
+        original_shape = U.shape
+        U = U.reshape(-1, 160)  # Flatten to [total_elements, 160]
+        
+        a = self.phrase_attention(U)
+        f_sa = self.self_attention(U)
+        
+        f_a = f_sa * a.unsqueeze(1)
+        
+        # Reshape f_a to match the original batch size
+        f_a = f_a.view(original_shape[0], -1, f_a.size(-1))
+        
+        # Sum over the time steps (dimension 1)
+        f_a = f_a.sum(1)
+        
         result = self.linear(f_a)
         return result
 
-class Phrase_attention(nn.Module):
-    def __init__(self):
-        super(Phrase_attention, self).__init__()
-        self.linear = nn.Linear(160, config.max_sen_len - config.n_gram + 1)  # Changed from 768 to 160
-        self.tanh = nn.Tanh()
-        self.u_w = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(config.max_sen_len - config.n_gram + 1, 1)))
-
-    def forward(self, embedding):
-        u_t = self.tanh(self.linear(embedding))
-        a = torch.matmul(u_t, self.u_w).squeeze(2)
-        a = F.log_softmax(a, dim=1)
-        return a
-
-class Self_Attention(nn.Module):
-    def __init__(self):
-        super(Self_Attention, self).__init__()
-        self.w1 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(160, 1)))  # Changed from 768 to 160
-        self.w2 = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(160, 1)))  # Changed from 768 to 160
-        self.b = nn.Parameter(torch.FloatTensor(torch.randn(1)))
-
-    def forward(self, embedding):
-        f1 = torch.matmul(embedding, self.w1)
-        f2 = torch.matmul(embedding, self.w2)
-        f1 = f1.repeat(1, 1, embedding.size(1))
-        f2 = f2.repeat(1, 1, embedding.size(1)).transpose(1, 2)
-        S = f1 + f2 + self.b
-        mask = torch.eye(embedding.size(1), embedding.size(1)).type(torch.ByteTensor)
-        S = S.masked_fill(mask.bool().cuda(), -float('inf'))
-        max_row = F.max_pool1d(S, kernel_size=embedding.size(1), stride=1)
-        a = F.softmax(max_row, dim=1)
-        v_a = torch.matmul(a.transpose(1, 2), embedding)
-        return v_a.squeeze(1)
+    def to(self, device):
+        super(Model, self).to(device)
+        self.bert = self.bert.to(device)
+        self.capsnet = self.capsnet.to(device)
+        self.phrase_attention = self.phrase_attention.to(device)
+        self.self_attention = self.self_attention.to(device)
+        return self
