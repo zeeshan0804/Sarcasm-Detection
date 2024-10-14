@@ -48,33 +48,34 @@ def evaluate(y_pred, y_true):
     print(classification_report(y_true, y_pred))
 
 
-def validation():
-    model.eval()
-    eval_data, eval_label = utils.load_corpus(config.test_path, max_sen_len=config.max_sen_len)
-    batch_eval = utils.batch_iter(eval_data, eval_label, batch_size=1)
-    eval_acc = 0
-    eval_loss = 0
-    for x_batch, y_batch in batch_eval:
-        x_batch = x_batch.to(device)
-        y_batch = y_batch.to(device)
-        with torch.no_grad():
-            prediction = model(x_batch)
-        loss = loss_fn(prediction, y_batch)
-        num_correct = (torch.max(prediction, 1)[1] == y_batch.data).sum()
-        eval_loss += float(loss)
-        eval_acc += float(num_correct)
-    eval_loss = eval_loss / len(eval_data)
-    eval_acc = 100.0 * eval_acc / len(eval_data)
-    if eval_loss < config.best_loss:
-        config.best_loss = eval_loss
+def validation(train_loss):
+    # model.eval()
+    # eval_data, eval_label = utils.load_corpus(config.test_path, max_sen_len=config.max_sen_len)
+    # batch_eval = utils.batch_iter(eval_data, eval_label, batch_size=1)
+    # eval_acc = 0
+    # eval_loss = 0
+    # for x_batch, y_batch in batch_eval:
+    #     x_batch = x_batch.to(device)
+    #     y_batch = y_batch.to(device)
+    #     # with torch.no_grad():
+    #         # prediction = model(x_batch)
+    #     # loss = loss_fn(prediction, y_batch)
+    #     num_correct = (torch.max(prediction, 1)[1] == y_batch.data).sum()
+    #     eval_loss += float(loss)
+    #     eval_acc += float(num_correct)
+    # eval_loss = eval_loss / len(eval_data)
+    # eval_acc = 100.0 * eval_acc / len(eval_data)
+    if train_loss < config.best_loss:
+        config.best_loss = train_loss
         print("better model---------------------")
         print("save model---------------------")
         torch.save(model.state_dict(), config.model_save_path)
-        print("current best loss: {0:.6f}".format(eval_loss))
+        print("current best loss: {0:.6f}".format(train_loss))
         config.hit_patient = 0
-        return eval_loss, eval_acc
+        # return eval_loss, eval_acc
     config.hit_patient += 1
-    return eval_loss, eval_acc
+    torch.save(model.state_dict(), config.model_save_path)
+    return True
 
 
 def train():
@@ -130,6 +131,7 @@ def train():
         print('Train Loss: {0:.3f}'.format(total_epoch_loss / steps),
               'Train Acc: {0:.3f}%'.format(total_epoch_acc / steps))
         # eval_loss, eval_acc = validation()
+        saved = validation(total_epoch_loss / steps)
         # print('Validation Loss: {0:.3f}'.format(eval_loss), 'Validation Acc: {0:.3f}%'.format(eval_acc))
         loss_train.append(total_epoch_loss / steps)
         # loss_test.append(eval_loss)
