@@ -15,7 +15,7 @@ class Config:
         self.num_filters = 100      #卷积核个数为100
         self.best_loss = float("inf")
         self.hit_patient = 0
-        self.early_stop_patient = 10
+        self.early_stop_patient = 3
         self.use_glove = True
         self.glove_path = "data/glove.6B.100d.txt"
         self.word2vec = "data/word2vec.txt"
