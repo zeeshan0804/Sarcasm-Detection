@@ -2,8 +2,9 @@ import torch
 import torch.nn.functional as F
 from transformers import BertTokenizer
 from config import Config
-from model import SarcasmDetectionModel  # Updated import
+from model2 import SarcasmDetectionModel  # Updated import
 from sklearn.metrics import classification_report, precision_score, recall_score, accuracy_score, f1_score, confusion_matrix
+from preprocessing_sarcasm import SarcasmPreprocessor
 import utils
 
 if torch.cuda.is_available():
@@ -42,10 +43,11 @@ def validation(train_loss):
     
     with torch.no_grad():
         for x_batch, y_batch in batch_eval:
+            x_batch = [str(x) for x in x_batch]  # Ensure x_batch is a list of strings
             inputs = tokenizer(x_batch, padding=True, truncation=True, return_tensors='pt')
             input_ids = inputs['input_ids'].to(device)
             attention_mask = inputs['attention_mask'].to(device)
-            y_batch = y_batch.to(device)
+            y_batch = torch.tensor(y_batch).to(device)
             
             # Get loss
             logits = model(input_ids, attention_mask)
@@ -89,10 +91,11 @@ def train():
 
         steps = 1
         for x_batch, y_batch in batch_train:
+            x_batch = [str(x) for x in x_batch]  # Ensure x_batch is a list of strings
             inputs = tokenizer(x_batch, padding=True, truncation=True, return_tensors='pt')
             input_ids = inputs['input_ids'].to(device)
             attention_mask = inputs['attention_mask'].to(device)
-            y_batch = y_batch.to(device)
+            y_batch = torch.tensor(y_batch).to(device)
             
             optimizer.zero_grad()
             
@@ -148,10 +151,11 @@ def test():
 
     with torch.no_grad():
         for x_batch, y_batch in batch_test:
+            x_batch = [str(x) for x in x_batch]  # Ensure x_batch is a list of strings
             inputs = tokenizer(x_batch, padding=True, truncation=True, return_tensors='pt')
             input_ids = inputs['input_ids'].to(device)
             attention_mask = inputs['attention_mask'].to(device)
-            y_batch = y_batch.to(device)
+            y_batch = torch.tensor(y_batch).to(device)
             
             logits = model(input_ids, attention_mask)
             predictions = torch.argmax(logits, dim=1)
