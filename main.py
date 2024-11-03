@@ -4,7 +4,7 @@ from transformers import BertTokenizer
 from config import Config
 from model2 import SarcasmDetectionModel  # Updated import
 from sklearn.metrics import classification_report, precision_score, recall_score, accuracy_score, f1_score, confusion_matrix
-from preprocessing_sarcasm import SarcasmPreprocessor
+# from preprocessing_sarcasm import SarcasmPreprocessor
 import utils
 
 if torch.cuda.is_available():
