@@ -14,6 +14,14 @@ tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
 config = Config()
 
+def map_tokens_to_glove_indices(tokens, word2id):
+    """
+    Map tokens to their corresponding GloVe indices.
+    :param tokens: List of tokens.
+    :param word2id: Dictionary mapping words to their GloVe indices.
+    :return: List of GloVe indices.
+    """
+    return [word2id.get(token, word2id['<UNK>']) for token in tokens]
 
 def build_word2id(file):
     """
@@ -25,8 +33,8 @@ def build_word2id(file):
         print("Vocabulary Exists")
         return
     else:
-        word2id = {"_PAD_": 0, "UNK": 1}
-        id2word = {0: "_PAD_", 1: "UNK"}
+        word2id = {"_PAD_": 0, "<UNK>": 1}
+        id2word = {0: "_PAD_", 1: "<UNK>"}
         path = config.word2id_path
         with open(file, encoding='UTF-8') as f:
             for line in f.readlines():
@@ -53,8 +61,10 @@ def load_word2id():
         for line in f.readlines():
             sp = line.strip().split()
             word = sp[0]
-            idx = sp[1]
+            idx = int(sp[1])
             word_to_id[word] = idx
+        if '<UNK>' not in word_to_id:
+            word_to_id['<UNK>'] = 1
         return word_to_id
 
 

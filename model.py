@@ -1,54 +1,137 @@
 import torch
 import torch.nn as nn
-from transformers import BertModel
+import torch.nn.functional as F
+import utils
+from config import Config
 
-class SarcasmDetectionModel(nn.Module):
-    def __init__(self, bert_model_name='bert-base-uncased', num_heads=8, d_model=128):
-        super(SarcasmDetectionModel, self).__init__()
-        self.bert = BertModel.from_pretrained(bert_model_name)
-        self.cnn = nn.Conv1d(in_channels=768, out_channels=d_model, kernel_size=3, padding=1)
-        self.bigru = nn.GRU(input_size=d_model, hidden_size=d_model//2, num_layers=1, batch_first=True, bidirectional=True)
-        self.multihead_attn = nn.MultiheadAttention(embed_dim=d_model, num_heads=num_heads, batch_first=True)
-        self.ffn = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.ReLU(),
-            nn.Dropout(0.1)
-        )
-        self.fc = nn.Linear(d_model, 2)  # Output layer for binary classification (sarcasm or not)
+torch.manual_seed(123)
+config = Config()
 
-    def forward(self, x_batch, attention_mask=None):
+class CapsuleLayer(nn.Module):
+    def __init__(self, num_capsules, in_channels, out_channels, kernel_size, stride=1, padding=0):
+        super(CapsuleLayer, self).__init__()
+        self.num_capsules = num_capsules
+        self.capsules = nn.ModuleList([
+            nn.Conv2d(in_channels, out_channels, kernel_size, stride, padding) 
+            for _ in range(num_capsules)
+        ])
+
+    def squash(self, tensor, dim=-1):
+        squared_norm = (tensor ** 2).sum(dim=dim, keepdim=True)
+        scale = squared_norm / (1 + squared_norm)
+        return scale * tensor / torch.sqrt(squared_norm)
+
+    def forward(self, x):
+        outputs = [capsule(x) for capsule in self.capsules]
+        outputs = torch.stack(outputs, dim=4)
+        return self.squash(outputs)
+
+class CapsNet(nn.Module):
+    def __init__(self):
+        super(CapsNet, self).__init__()
+        self.conv1 = nn.Conv2d(1, 256, kernel_size=(config.n_gram, 768), stride=1)
+        self.primary_capsules = CapsuleLayer(num_capsules=8, in_channels=256, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.digit_capsules = CapsuleLayer(num_capsules=10, in_channels=32*8, out_channels=16, kernel_size=1)
+        self.dropout = nn.Dropout(p=0.5)
+
+    def forward(self, embedding):
+        embedding = embedding.unsqueeze(1)
+        x = F.relu(self.conv1(embedding))
+        x = self.primary_capsules(x)
+        x = x.view(x.size(0), -1, x.size(2), x.size(3))
+        x = self.digit_capsules(x)
+        x = self.dropout(x)
+        x = x.squeeze().transpose(2, 1)
+        return x
+
+class Phrase_attention(nn.Module):
+    def __init__(self, input_dim=160, output_dim=38):
+        super(Phrase_attention, self).__init__()
+        self.linear = nn.Linear(input_dim, output_dim)
+        self.tanh = nn.Tanh()
+        self.u_w = nn.Parameter(nn.init.xavier_uniform_(torch.FloatTensor(output_dim, 1)))
+
+    def forward(self, embedding):
+        u_t = self.tanh(self.linear(embedding))
+        a = torch.matmul(u_t, self.u_w.to(embedding.device)).squeeze(1)
+        return a
+
+class Self_Attention(nn.Module):
+    def __init__(self, input_dim=160, hidden_dim=38):
+        super(Self_Attention, self).__init__()
+        self.query = nn.Linear(input_dim, hidden_dim)
+        self.key = nn.Linear(input_dim, hidden_dim)
+        self.value = nn.Linear(input_dim, hidden_dim)
+        self.scale = nn.Parameter(torch.sqrt(torch.FloatTensor([hidden_dim])))
+
+    def forward(self, embedding):
+        Q = self.query(embedding)
+        K = self.key(embedding)
+        V = self.value(embedding)
+        
+        attention = torch.matmul(Q, K.transpose(-2, -1)) / self.scale.to(embedding.device)
+        attention = F.softmax(attention, dim=-1)
+        x = torch.matmul(attention, V)
+        
+        return x
+
+class Model(nn.Module):
+    def __init__(self, bert, glove_embeddings):
+        super(Model, self).__init__()
+        self.bert = bert.train()
+        self.fc0 = nn.Linear(768, 100)
+        self.embed_size = config.embed_size
+        self.capsnet = CapsNet()
+        self.phrase_attention = Phrase_attention(input_dim=160, output_dim=38)
+        self.self_attention = Self_Attention(input_dim=160, hidden_dim=38)
+        self.batch_size = config.batch_size
+        self.embed_size = config.embed_size
+        self.linear = nn.Linear(38, 2)  # Output layer
+        self.use_glove = config.use_glove
+        self.uw = nn.Parameter(torch.FloatTensor(torch.randn(100)))
+        
+        # GloVe embeddings
+        self.glove_embeddings = nn.Embedding.from_pretrained(glove_embeddings, freeze=False)
+
+    def forward(self, x_batch, tags=None):
+        device = x_batch.device
+
         # BERT embeddings
         with torch.no_grad():
-            outputs = self.bert(x_batch, attention_mask=attention_mask)
-            E = outputs.last_hidden_state  # [batch_size, seq_len, 768]
+            outputs = self.bert(x_batch)
+            E = outputs.last_hidden_state  # Extract the last hidden state
 
-        # CNN feature extraction
-        E = E.permute(0, 2, 1)  # [batch_size, 768, seq_len]
-        U = self.cnn(E)  # [batch_size, d_model, seq_len]
-        U = U.permute(0, 2, 1)  # [batch_size, seq_len, d_model]
+        # GloVe embeddings
+        if self.use_glove:
+            glove_embeds = self.glove_embeddings(x_batch)
+            print(f"BERT embeddings shape: {E.shape}")
+            print(f"GloVe embeddings shape: {glove_embeds.shape}")
+            E = torch.cat((E, glove_embeds), dim=-1)  # Concatenate along the last dimension
 
-        # BiGRU for sequential modeling
-        U, _ = self.bigru(U)  # [batch_size, seq_len, d_model]
+        # CapsNet processing
+        U = self.capsnet(E)
+        original_shape = U.shape
+        U = U.reshape(-1, 160)
 
-        # Multi-head self-attention
-        attn_output, _ = self.multihead_attn(U, U, U)  # [batch_size, seq_len, d_model]
+        # Attention mechanisms
+        a = self.phrase_attention(U)
+        f_sa = self.self_attention(U)
+        f_a = f_sa * a.unsqueeze(1)
 
-        # Pooling (mean pooling)
-        attn_output = attn_output.mean(dim=1)  # [batch_size, d_model]
+        # Reshape attention outputs
+        f_a = f_a.view(original_shape[0], -1, f_a.size(-1))
+        f_a = f_a.sum(1)
 
-        # Feed-Forward Neural Network
-        ffn_output = self.ffn(attn_output)  # [batch_size, d_model]
+        # Get final output
+        output = self.linear(f_a)  # [batch_size, 2]
 
-        # Output layer
-        logits = self.fc(ffn_output)  # [batch_size, 2]
-        return logits
+        return output
 
     def to(self, device):
-        super(SarcasmDetectionModel, self).to(device)
+        super(Model, self).to(device)
         self.bert = self.bert.to(device)
-        self.cnn = self.cnn.to(device)
-        self.bigru = self.bigru.to(device)
-        self.multihead_attn = self.multihead_attn.to(device)
-        self.ffn = self.ffn.to(device)
-        self.fc = self.fc.to(device)
+        self.capsnet = self.capsnet.to(device)
+        self.phrase_attention = self.phrase_attention.to(device)
+        self.self_attention = self.self_attention.to(device)
+        self.glove_embeddings = self.glove_embeddings.to(device)
         return self
